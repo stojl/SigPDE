@@ -6,7 +6,7 @@ except ImportError as e:
         "Install it with 'pip install torch'."
     ) from e
 
-import static_kernels as kernels
+from . import static_kernels as kernels
 
 from .kernel import (
     SigPDE

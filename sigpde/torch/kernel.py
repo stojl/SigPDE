@@ -1,9 +1,9 @@
 import torch
 from numba import cuda
 
-import BatchIterator
+from sigpde.BatchIterator import BatchIterator
 
-from PDESolvers import (
+from sigpde.PDESolvers import (
     PairwisePDESolver
 )
 
@@ -42,12 +42,11 @@ class SigPDE():
             max_batch,
             max_threads
         )
-        
-        mb_size = solver.batch_size
+
         result = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
         
-        for _, start, stop in BatchIterator(batch_size, mb_size):
-            inc = pairwise_inner_product(x[start:stop,:,:], y[start:stop,:,:]) 
+        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
+            inc = pairwise_inner_product(x[start:stop,:,:], y[start:stop,:,:], self.static_kernel, self.dyadic_order) 
             if is_scaled:
                 solver.solve_scaled(inc, x_scale[start:stop], y_scale[start:stop], result[start:stop])
             else:
