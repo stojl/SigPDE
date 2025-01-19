@@ -9,7 +9,8 @@ except ImportError as e:
 from . import static_kernels as kernels
 
 from .kernel import (
-    SigPDE
+    SigPDE,
+    RobustSigPDE
 )
 
-__all__ = ["SigPDE", "kernels"]
+__all__ = ["SigPDE", "RobustSigPDE", "kernels"]
