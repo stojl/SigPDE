@@ -26,8 +26,8 @@ class SigPDE():
         self.dyadic_order = dyadic_order
         
     def pairwise(self, x, y=None, x_scale=None, y_scale=None, max_batch=1000, max_threads=1024):
-        y = x if y is None else y
         y_scale = x_scale if y is None else y_scale
+        y = x if y is None else y
         
         batch_size = x.shape[0]
         is_scaled = x_scale is not None or y_scale is not None
@@ -73,6 +73,27 @@ class RobustSigPDE():
             bisections,
             nr_iterations
         )
+        
+    def pairwise_norm(self, x, scales, max_batch=1000, max_threads=1024):
+        batch_size = x.shape[0]
+               
+        solver = PairwisePDESolver(
+            batch_size, 
+            x.shape[1], 
+            x.shape[1],
+            self.dyadic_order,
+            max_batch,
+            max_threads
+        )
+        
+        sig = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        sig_derivative = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        
+        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
+            x_inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
+            solver.solve_norms_derivative(x_inc, scales[start:stop], sig[start:stop], sig_derivative[start:stop])
+            
+        return sig, sig_derivative
         
     def pairwise(self, x, y=None, normalizer=None, bisections=15, nr_iterations=10, max_batch=1000, max_threads=1024):
         symmetric = y is None

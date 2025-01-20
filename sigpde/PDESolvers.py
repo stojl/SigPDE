@@ -9,7 +9,8 @@ from sigpde.bufferFactory import (
 from sigpde.cuda_pairwise_kernels import (
     sigpde_pairwise,
     sigpde_pairwise_scaled,
-    sigpde_pairwise_norm
+    sigpde_pairwise_norm,
+    sigpde_pairwise_norm_dev
 )
 
 from sigpde.utils import (
@@ -92,4 +93,23 @@ class PairwisePDESolver():
             self.buffer, 
             self.norm_buffer, 
             result
+        )
+        
+    def solve_norms_derivative(self, increments, scales, result_1, result_2):
+        if self.norm_buffer is None:
+            self.norm_buffer = self.buffer_factory()
+            
+        blocks = min(increments.__cuda_array_interface__["shape"][0], self.max_batch)
+
+        sigpde_pairwise_norm_dev[blocks, self.threads_per_block](
+            cuda.as_cuda_array(increments), 
+            cuda.as_cuda_array(scales), 
+            self.length_x, 
+            self.dyadic_order, 
+            self.thread_mult, 
+            self.anti_diagonals, 
+            self.buffer, 
+            self.norm_buffer, 
+            result_1,
+            result_2
         )
