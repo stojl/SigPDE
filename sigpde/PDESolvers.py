@@ -9,6 +9,7 @@ from sigpde.bufferFactory import (
 from sigpde.cuda_pairwise_kernels import (
     sigpde_pairwise,
     sigpde_pairwise_scaled,
+    sigpde_pairwise_norm_init,
     sigpde_pairwise_norm,
     sigpde_pairwise_norm_dev
 )
@@ -75,24 +76,38 @@ class PairwisePDESolver():
             cuda.as_cuda_array(result)
         )
         
-    def solve_norms(self, increments, norms, result, bisections=15, nr_iterations=10):
-        if self.norm_buffer is None:
-            self.norm_buffer = self.buffer_factory()
-            
+    def solve_norms(self, increments, norms, f_norms, result, init_tol=0.01, tol=1e-8, maxit=100):            
         blocks = min(increments.__cuda_array_interface__["shape"][0], self.max_batch)
-        
-        sigpde_pairwise_norm[blocks, self.threads_per_block](
+    
+        if self.norm_buffer is None:
+            self.norm_buffer = cuda.device_array((self.max_batch, 4))
+            
+        sigpde_pairwise_norm_init[blocks, self.threads_per_block](
             cuda.as_cuda_array(increments), 
             cuda.as_cuda_array(norms), 
+            cuda.as_cuda_array(f_norms),
             self.length_x, 
             self.dyadic_order, 
             self.thread_mult, 
             self.anti_diagonals, 
-            bisections, 
-            nr_iterations,
             self.buffer, 
-            self.norm_buffer, 
-            result
+            self.norm_buffer,
+            maxit,
+            init_tol
+        )
+        
+        sigpde_pairwise_norm[blocks, self.threads_per_block](
+            cuda.as_cuda_array(increments), 
+            cuda.as_cuda_array(norms),
+            self.norm_buffer,
+            self.length_x,
+            self.dyadic_order, 
+            self.thread_mult, 
+            self.anti_diagonals, 
+            self.buffer, 
+            cuda.as_cuda_array(result),
+            maxit,
+            tol
         )
         
     def solve_norms_derivative(self, increments, scales, result_1, result_2):

@@ -62,40 +62,21 @@ class RobustSigPDE():
         self.static_kernel = static_kernel
         self.dyadic_order = dyadic_order
         
-    def _norm_factors(self, solver, inc, norms, scales, normalizer, bisections, nr_iterations):
+    def _norm_factors(self, solver, inc, norms, scales, normalizer, init_tol=0.01, tol=1e-8, maxit=100):
         solver.solve(inc, norms)
-        norms = normalizer(norms)
+        normalized_norms = normalizer(norms)
         
         solver.solve_norms(
             inc,
+            normalized_norms,
             norms,
             scales,
-            bisections,
-            nr_iterations
+            init_tol,
+            tol,
+            maxit
         )
         
-    def pairwise_norm(self, x, scales, max_batch=1000, max_threads=1024):
-        batch_size = x.shape[0]
-               
-        solver = PairwisePDESolver(
-            batch_size, 
-            x.shape[1], 
-            x.shape[1],
-            self.dyadic_order,
-            max_batch,
-            max_threads
-        )
-        
-        sig = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
-        sig_derivative = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
-        
-        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
-            x_inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
-            solver.solve_norms_derivative(x_inc, scales[start:stop], sig[start:stop], sig_derivative[start:stop])
-            
-        return sig, sig_derivative
-        
-    def pairwise(self, x, y=None, normalizer=None, bisections=15, nr_iterations=10, max_batch=1000, max_threads=1024):
+    def pairwise(self, x, y=None, normalizer=None, init_tol=0.01, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
         symmetric = y is None
         y = x if symmetric else y
         normalizer = log_normalizer if normalizer is None else normalizer
@@ -126,8 +107,9 @@ class RobustSigPDE():
                 x_norms,
                 x_scales,
                 normalizer,
-                bisections,
-                nr_iterations
+                init_tol,
+                tol,
+                maxit
             )
             
             if symmetric:
@@ -142,8 +124,9 @@ class RobustSigPDE():
                     y_norms,
                     y_scales,
                     normalizer,
-                    bisections,
-                    nr_iterations
+                    init_tol,
+                    tol,
+                    maxit
                 )
                     
                 inc = pairwise_inner_product(x[start:stop,:,:], y[start:stop,:,:], self.static_kernel, self.dyadic_order) 
@@ -151,3 +134,6 @@ class RobustSigPDE():
             solver.solve_scaled(inc, x_scales, y_scales, result[start:stop])
             
         return result
+    
+    def gram(self, x, y=None, normalizer=None, init_tol=0.01, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
+        
