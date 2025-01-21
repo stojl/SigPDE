@@ -2,9 +2,12 @@ import torch
 from numba import cuda
 
 from sigpde.BatchIterator import BatchIterator
+from sigpde.utils import tensor_type, sqrt_ceil
 
 from sigpde.PDESolvers import (
-    PairwisePDESolver
+    PairwisePDESolver,
+    GramPDESolver,
+    SymmetricGramPDESolver
 )
 
 def pairwise_inner_product(x, y, static_kernel, dyadic_order):
@@ -40,7 +43,8 @@ class SigPDE():
         solver = PairwisePDESolver(
             batch_size, 
             x.shape[1], 
-            y.shape[1], 
+            y.shape[1],
+            tensor_type(x),
             self.dyadic_order,
             max_batch,
             max_threads
@@ -56,6 +60,114 @@ class SigPDE():
                 solver.solve(inc, result[start:stop])
             
         return result
+    
+    def gram(self, x, y=None, x_scale=None, y_scale=None, max_batch=1000, max_threads=1024):
+        max_batch = sqrt_ceil(max_batch)
+        
+        if y is None:
+            return self._gram_sym(x, x_scale, max_batch, max_threads)
+        else:
+            return self._gram(x, y, x_scale, y_scale, max_batch, max_threads)
+        
+    def _gram(self, x, y, x_scale, y_scale, max_batch, max_threads):
+        is_scaled = x_scale is None or y_scale is None
+        batch_size_x = x.shape[0]
+        batch_size_y = y.shape[0]
+        
+        if is_scaled:
+            x_scale = torch.ones(batch_size_x, device=x.device, dtype=x.dtype) if x_scale is None else x_scale
+            y_scale = torch.ones(batch_size_y, device=y.device, dtype=y.dtype) if y_scale is None else y_scale
+            x_scale = x_scale.repeat(batch_size_x) if x_scale.shape[0] == 1 else x_scale
+            y_scale = y_scale.repeat(batch_size_y) if y_scale.shape[0] == 1 else y_scale
+            
+        solver = GramPDESolver(
+            batch_size_x,
+            batch_size_y,
+            x.shape[1],
+            y.shape[1],
+            tensor_type(x),
+            self.dyadic_order,
+            max_batch,
+            max_threads
+        )
+        
+        final_result = torch.zeros((batch_size_x, batch_size_y), device=x.device, dtype=x.dtype)
+        result = torch.zeros((solver.batch_size_x, solver.batch_size_y), device=x.device, dtype=x.dtype)
+        
+        for _, start_y, stop_y in BatchIterator(batch_size_y, solver.batch_size_y):
+            for _, start_x, stop_x in BatchIterator(batch_size_x, solver.batch_size_x):
+                
+                inc = gram_inner_product(
+                    x[start_x:stop_x,:,:],
+                    y[start_y:stop_y,:,:],
+                    self.static_kernel,
+                    self.dyadic_order
+                ) 
+                
+                if is_scaled:
+                    solver.solve_scaled(
+                        inc, 
+                        x_scale[start_x:stop_x], 
+                        y_scale[start_y:stop_y],
+                        result
+                    )
+                else:
+                    solver.solve(
+                        inc,
+                        start_x, 
+                        start_y,
+                        result
+                    )
+                    
+                final_result[start_x:stop_x, start_y:stop_y] = result[0:inc.shape[0], 0:inc.shape[1]]
+        
+        return final_result
+    
+    def _gram_sym(self, x, x_scale, max_batch, max_threads):
+        is_scaled = x_scale is not None
+        
+        batch_size = x.shape[0]
+        
+        solver = SymmetricGramPDESolver(
+            batch_size,
+            x.shape[0],
+            tensor_type(x),
+            self.dyadic_order,
+            max_batch,
+            max_threads
+        )
+        
+        result = torch.zeros((batch_size, batch_size), device=x.device, dtype=x.dtype)
+        
+        for _, start_y, stop_y in BatchIterator(batch_size, solver.batch_size):
+            for _, start_x, stop_x in BatchIterator(batch_size, solver.batch_size):
+                
+                inc = gram_inner_product(
+                    x[start_x:stop_x,:,:],
+                    x[start_y:stop_y,:,:],
+                    self.static_kernel,
+                    self.dyadic_order
+                ) 
+                
+                if is_scaled:
+                    solver.solve_scaled(
+                        inc, 
+                        x_scale[start_x:stop_x], 
+                        x_scale[start_y,stop_y], 
+                        start_x, 
+                        start_y,
+                        result
+                    )
+                else:
+                    solver.solve(
+                        inc,
+                        start_x, 
+                        start_y,
+                        result
+                    )
+                    
+        return result
+        
         
 class RobustSigPDE():
     def __init__(self, static_kernel, dyadic_order=0):
@@ -76,6 +188,40 @@ class RobustSigPDE():
             maxit
         )
         
+    def normalization(self, x, normalizer=None, init_tol=0.01, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
+        normalizer = log_normalizer if normalizer is None else normalizer
+        
+        batch_size = x.shape[0]
+               
+        solver = PairwisePDESolver(
+            batch_size, 
+            x.shape[1], 
+            x.shape[1], 
+            tensor_type(x),
+            self.dyadic_order,
+            max_batch,
+            max_threads
+        )
+        
+        x_scales = torch.zeros(solver.batch_size, device=x.device, dtype=x.dtype)
+        x_norms = torch.zeros(solver.batch_size, device=x.device, dtype=x.dtype)
+        
+        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
+            x_inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
+            
+            self._norm_factors(
+                solver,
+                x_inc,
+                x_norms,
+                x_scales,
+                normalizer,
+                init_tol,
+                tol,
+                maxit
+            )
+            
+        return x_scales
+        
     def pairwise(self, x, y=None, normalizer=None, init_tol=0.01, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
         symmetric = y is None
         y = x if symmetric else y
@@ -87,6 +233,7 @@ class RobustSigPDE():
             batch_size, 
             x.shape[1], 
             y.shape[1], 
+            tensor_type(x),
             self.dyadic_order,
             max_batch,
             max_threads
@@ -134,6 +281,4 @@ class RobustSigPDE():
             solver.solve_scaled(inc, x_scales, y_scales, result[start:stop])
             
         return result
-    
-    def gram(self, x, y=None, normalizer=None, init_tol=0.01, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
         
