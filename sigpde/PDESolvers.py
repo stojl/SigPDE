@@ -214,9 +214,9 @@ class SymmetricGramPDESolver():
 
         sigpde_gram_symmetric_scaled[(blocks_x, blocks_y), self.threads_per_block](
             cuda.as_cuda_array(increments),
+            self.length,
             cuda.as_cuda_array(scale_x),
             cuda.as_cuda_array(scale_y),
-            self.length,
             x_offset,
             y_offset,
             self.max_batch,

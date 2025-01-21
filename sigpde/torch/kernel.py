@@ -70,7 +70,7 @@ class SigPDE():
             return self._gram(x, y, x_scale, y_scale, max_batch, max_threads)
         
     def _gram(self, x, y, x_scale, y_scale, max_batch, max_threads):
-        is_scaled = x_scale is None or y_scale is None
+        is_scaled = x_scale is not None or y_scale is not None
         batch_size_x = x.shape[0]
         batch_size_y = y.shape[0]
         
@@ -114,8 +114,6 @@ class SigPDE():
                 else:
                     solver.solve(
                         inc,
-                        start_x, 
-                        start_y,
                         result
                     )
                     
@@ -130,7 +128,7 @@ class SigPDE():
         
         solver = SymmetricGramPDESolver(
             batch_size,
-            x.shape[0],
+            x.shape[1],
             tensor_type(x),
             self.dyadic_order,
             max_batch,
@@ -153,7 +151,7 @@ class SigPDE():
                     solver.solve_scaled(
                         inc, 
                         x_scale[start_x:stop_x], 
-                        x_scale[start_y,stop_y], 
+                        x_scale[start_y:stop_y], 
                         start_x, 
                         start_y,
                         result
@@ -281,4 +279,10 @@ class RobustSigPDE():
             solver.solve_scaled(inc, x_scales, y_scales, result[start:stop])
             
         return result
+    
+    def gram(self, x, y=None, normalizer=None, init_tol=0.01, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
+        x_scales = self.normalization(x, normalizer, init_tol, tol, maxit, max_batch, max_threads)
+        y_scales = None if y is None else self.normalization(y, normalizer, init_tol, tol, maxit, max_batch, max_threads)
         
+        solver = SigPDE(self.static_kernel, self.dyadic_order)
+        return solver.gram(x, y, x_scales, y_scales, max_batch, max_threads)
