@@ -160,6 +160,9 @@ def sigpde_pairwise_norm_chandraputla(incs, norms, f_norms, length_x, order, L, 
             t = fa / (fb - fa) * fc / (fb - fc) + (c - a) / (b - a) * fa / (fc - fa) * fb / (fc - fb)
         else:
             t = 0.5
+            
+        if not (0 < t and t < 1):
+            t = 0.5
     
 @cuda.jit
 def sigpde_pairwise_norm_init(incs, norms, f_norms, length_x, order, L, N, sol_1, out, maxit, tol):

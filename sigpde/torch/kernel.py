@@ -1,5 +1,4 @@
 import torch
-from numba import cuda
 
 from sigpde.BatchIterator import BatchIterator
 from sigpde.utils import tensor_type, sqrt_ceil
@@ -174,6 +173,7 @@ class RobustSigPDE():
         
     def _norm_factors(self, solver, inc, norms, scales, normalizer, tol=1e-8, maxit=100):
         solver.solve(inc, norms)
+
         normalized_norms = normalizer(norms)
         
         solver.solve_norms(
@@ -184,6 +184,8 @@ class RobustSigPDE():
             tol,
             maxit
         )
+        
+        scales[norms < 1] = 0
         
     def normalization(self, x, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
         normalizer = log_normalizer if normalizer is None else normalizer

@@ -5,4 +5,4 @@ warnings.filterwarnings("ignore", category=NumbaWarning)
 
 from . import torch
 
-__all__ = ["torch"]
+__all__ = ["torch", "jax"]
