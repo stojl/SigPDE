@@ -1,5 +1,6 @@
 import torch
 
+from numba import cuda
 from sigpde.BatchIterator import BatchIterator
 from sigpde.utils import tensor_type, sqrt_ceil
 
@@ -51,13 +52,16 @@ class SigPDE():
 
         result = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
         
-        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
+        for _, start, stop in BatchIterator(batch_size, solver.max_batch):
+            cuda.synchronize()
             inc = pairwise_inner_product(x[start:stop,:,:], y[start:stop,:,:], self.static_kernel, self.dyadic_order) 
             if is_scaled:
                 solver.solve_scaled(inc, x_scale[start:stop], y_scale[start:stop], result[start:stop])
             else:
                 solver.solve(inc, result[start:stop])
-            
+                
+        cuda.synchronize()
+        
         return result
     
     def gram(self, x, y=None, x_scale=None, y_scale=None, max_batch=1000, max_threads=1024):
@@ -93,9 +97,8 @@ class SigPDE():
         final_result = torch.zeros((batch_size_x, batch_size_y), device=x.device, dtype=x.dtype)
         result = torch.zeros((solver.batch_size_x, solver.batch_size_y), device=x.device, dtype=x.dtype)
         
-        for _, start_y, stop_y in BatchIterator(batch_size_y, solver.batch_size_y):
-            for _, start_x, stop_x in BatchIterator(batch_size_x, solver.batch_size_x):
-                
+        for _, start_y, stop_y in BatchIterator(batch_size_y, solver.max_batch_y):
+            for _, start_x, stop_x in BatchIterator(batch_size_x, solver.max_batch_x):
                 inc = gram_inner_product(
                     x[start_x:stop_x,:,:],
                     y[start_y:stop_y,:,:],
@@ -117,6 +120,8 @@ class SigPDE():
                     )
                     
                 final_result[start_x:stop_x, start_y:stop_y] = result[0:inc.shape[0], 0:inc.shape[1]]
+                
+        cuda.synchronize()
         
         return final_result
     
@@ -135,10 +140,8 @@ class SigPDE():
         )
         
         result = torch.zeros((batch_size, batch_size), device=x.device, dtype=x.dtype)
-        
-        for _, start_y, stop_y in BatchIterator(batch_size, solver.batch_size):
-            for _, start_x, stop_x in BatchIterator(batch_size, solver.batch_size):
-                
+        for _, start_y, stop_y in BatchIterator(batch_size, solver.max_batch):
+            for _, start_x, stop_x in BatchIterator(batch_size, solver.max_batch):
                 inc = gram_inner_product(
                     x[start_x:stop_x,:,:],
                     x[start_y:stop_y,:,:],
@@ -163,6 +166,8 @@ class SigPDE():
                         result
                     )
                     
+        cuda.synchronize()
+            
         return result
         
         
@@ -205,18 +210,20 @@ class RobustSigPDE():
         x_scales = torch.zeros(solver.batch_size, device=x.device, dtype=x.dtype)
         x_norms = torch.zeros(solver.batch_size, device=x.device, dtype=x.dtype)
         
-        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
+        for _, start, stop in BatchIterator(batch_size, solver.max_batch):
             x_inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
             
             self._norm_factors(
                 solver,
                 x_inc,
-                x_norms,
-                x_scales,
+                x_norms[start:stop],
+                x_scales[start:stop],
                 normalizer,
                 tol,
                 maxit
             )
+            
+        cuda.synchronize()
             
         return x_scales
         
@@ -237,13 +244,14 @@ class RobustSigPDE():
             max_threads
         )
         
-        x_scales = torch.zeros(solver.batch_size, device=x.device, dtype=x.dtype)
-        y_scales = None if symmetric else torch.zeros(solver.batch_size, device=y.device, dtype=y.dtype)
-        x_norms = torch.zeros(solver.batch_size, device=x.device, dtype=x.dtype)
-        y_norms = None if symmetric else torch.zeros(solver.batch_size, device=y.device, dtype=y.dtype)
+        x_scales = torch.zeros(solver.max_batch, device=x.device, dtype=x.dtype)
+        y_scales = None if symmetric else torch.zeros(solver.max_batch, device=y.device, dtype=y.dtype)
+        x_norms = torch.zeros(solver.max_batch, device=x.device, dtype=x.dtype)
+        y_norms = None if symmetric else torch.zeros(solver.max_batch, device=y.device, dtype=y.dtype)
         result = torch.zeros(batch_size, device=x.device, dtype=x.dtype)        
         
-        for _, start, stop in BatchIterator(batch_size, solver.batch_size):
+        for _, start, stop in BatchIterator(batch_size, solver.max_batch):
+            cuda.synchronize()
             x_inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
             
             self._norm_factors(
@@ -275,7 +283,9 @@ class RobustSigPDE():
                 inc = pairwise_inner_product(x[start:stop,:,:], y[start:stop,:,:], self.static_kernel, self.dyadic_order) 
             
             solver.solve_scaled(inc, x_scales, y_scales, result[start:stop])
-            
+        
+        cuda.synchronize()
+        
         return result
     
     def gram(self, x, y=None, x_scale=None, y_scale=None, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
