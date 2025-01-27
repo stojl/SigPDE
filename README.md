@@ -1,6 +1,6 @@
 # SigPDE
 
-**SigPDE** is a Python package for efficient computation of the **untruncated signature kernel** by solving the Goursat PDE as described in **The Signature Kernel is the solution of a Goursat PDE**
+**SigPDE** is a Python package for efficient computation of the **untruncated signature kernel** by solving a Goursat PDE outlined in the paper **The Signature Kernel is the solution of a Goursat PDE**
 
 The package also includes implementations of the **robust, untruncated signature kernel** as outlined in the paper **Signature moments to characterize laws of stochastic processes**.
 
