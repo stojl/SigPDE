@@ -10,8 +10,6 @@ from sigpde.bufferFactory import (
 from sigpde.cuda_pairwise_kernels import (
     sigpde_pairwise,
     sigpde_pairwise_scaled,
-    sigpde_pairwise_norm_init,
-    sigpde_pairwise_norm,
     sigpde_pairwise_norm_chandraputla
 )
 

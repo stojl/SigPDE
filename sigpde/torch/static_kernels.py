@@ -11,7 +11,7 @@ class LinearKernel():
         return self.scale * torch.einsum('ipk,jqk->ijpq', X, Y)
 
 class RBFKernel():
-    def __init__(self, sigma):
+    def __init__(self, sigma=1.0):
         self.sigma = sigma
 
     def pairwise(self, X, Y):
@@ -34,3 +34,21 @@ class RBFKernel():
         dist = -2.*torch.einsum('ipk,jqk->ijpq', X, Y)
         dist += torch.reshape(Xs,(A,1,M,1)) + torch.reshape(Ys,(1,B,1,N))
         return torch.exp(-dist/self.sigma)
+    
+class L1RBFKernel():
+    def __init__(self, sigma=1.0):
+        self.sigma = sigma
+
+    def pairwise(self, X, Y):
+        A, M, D = X.shape
+        N = Y.shape[1]
+        
+        dist = torch.abs(X.unsqueeze(2) - Y.unsqueeze(1)).sum(dim=-1)  # (A, M, N)
+        return torch.exp(-dist / self.sigma)
+
+    def gram(self, X, Y):
+        A, M, D = X.shape
+        B, N, _ = Y.shape
+
+        dist = torch.abs(X.unsqueeze(1).unsqueeze(3) - Y.unsqueeze(0).unsqueeze(2)).sum(dim=-1)  # (A, B, M, N)
+        return torch.exp(-dist / self.sigma)

@@ -1,5 +1,6 @@
 from numba import cuda
 from numpy import float64
+
 class PairwiseBufferFactory():
     def __init__(self, batch, length, dtype=None):
         self.dtype = float64 if dtype is None else dtype

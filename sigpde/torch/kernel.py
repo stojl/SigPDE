@@ -172,9 +172,10 @@ class SigPDE():
         
         
 class RobustSigPDE():
-    def __init__(self, static_kernel, dyadic_order=0):
+    def __init__(self, static_kernel, dyadic_order=0, normalizer=None):
         self.static_kernel = static_kernel
         self.dyadic_order = dyadic_order
+        self.normalizer = log_normalizer if normalizer is None else normalizer
         
     def _norm_factors(self, solver, inc, norms, scales, normalizer, tol=1e-8, maxit=100):
         solver.solve(inc, norms)
@@ -193,7 +194,7 @@ class RobustSigPDE():
         scales[norms < 1] = 0
         
     def normalization(self, x, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
-        normalizer = log_normalizer if normalizer is None else normalizer
+        normalizer = self.normalizer if normalizer is None else normalizer
         
         batch_size = x.shape[0]
                
@@ -230,7 +231,7 @@ class RobustSigPDE():
     def pairwise(self, x, y=None, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
         symmetric = y is None
         y = x if symmetric else y
-        normalizer = log_normalizer if normalizer is None else normalizer
+        normalizer = self.normalizer if normalizer is None else normalizer
         
         batch_size = x.shape[0]
                
