@@ -47,6 +47,7 @@ robust_kernel.gram(x, y)
 robust_kernel.normalization(x)
 
 # Custom normalization function
+# Default is: 2 - 1 / (1 + log(x))
 # Must satisfy: f(x) <= x for all x >= 1
 def my_normalizer(x):
     return 2 - 1 / x.pow(0.1)
