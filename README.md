@@ -57,5 +57,5 @@ robust_kernel.pairwise(x, normalizer=my_normalizer)
 ```
 
 ### References
-1. [Salvi et al., 2021 - "The Signature Kernel Is the Solution of a Goursat PDE"](http://dx.doi.org/10.1137/20M1366794)
+1. [Salvi et al., 2021 - "The Signature Kernel Is the Solution of a Goursat PDE"](https://arxiv.org/abs/2006.14794)
 2. [Chevyrev & Oberhauser, 2022 - "Signature moments to characterize laws of stochastic processes"](https://arxiv.org/abs/1810.10971)
