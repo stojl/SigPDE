@@ -179,7 +179,8 @@ class RobustSigPDE():
         
     def _norm_factors(self, solver, inc, norms, scales, normalizer, tol=1e-8, maxit=100):
         solver.solve(inc, norms)
-
+        
+        norms[torch.isnan(norms)] = torch.inf
         normalized_norms = normalizer(norms)
         
         solver.solve_norms(

@@ -1,4 +1,5 @@
 from numba import cuda
+import math
 
 from sigpde.cuda_device_functions import (
     pde_step
@@ -128,7 +129,7 @@ def sigpde_pairwise_norm_chandraputla(incs, norms, f_norms, length_x, order, L, 
                 
             cuda.syncthreads()
             
-        ft = sol_1[block_id, 0, 0] - norms[block_id]
+        ft = float('inf') if math.isnan(sol_1[block_id, 0, 0]) else sol_1[block_id, 0, 0] - norms[block_id]
             
         if ft * fa >= 0:
             c = a
@@ -143,14 +144,14 @@ def sigpde_pairwise_norm_chandraputla(incs, norms, f_norms, length_x, order, L, 
         fa = ft
             
         if abs(fa) < abs(fb):
+            if thread_id == 0:
+                out[block_id] = a
             if abs(fa) < tol:
-                if thread_id == 0:
-                    out[block_id] = a
                 return
         else:
+            if thread_id == 0:
+                out[block_id] = b
             if abs(fb) < tol:
-                if thread_id == 0:
-                    out[block_id] = b
                 return
             
         xi = (a - b) / (c - b)
