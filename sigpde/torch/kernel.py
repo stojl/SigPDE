@@ -170,18 +170,91 @@ class SigPDE():
             
         return result
         
+    def pairwise_scale_derivative(self, x, x_scale=None,  max_batch=1000, max_threads=1024):       
+        batch_size = x.shape[0]
         
+        x_scale = torch.ones(batch_size, device=x.device, dtype=x.dtype) if x_scale is None else x_scale
+        x_scale = x_scale.repeat(batch_size) if x_scale.shape[0] == 1 else x_scale
+               
+        solver = PairwisePDESolver(
+            batch_size, 
+            x.shape[1], 
+            x.shape[1],
+            tensor_type(x),
+            self.dyadic_order,
+            max_batch,
+            max_threads
+        )
+
+        result = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        result_derivative = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        
+        for _, start, stop in BatchIterator(batch_size, solver.max_batch):
+            cuda.synchronize()
+            inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
+            
+            solver.solve_scaled_derivative(
+                inc,
+                x_scale[start:stop],
+                result[start:stop],
+                result_derivative[start:stop]
+            )
+                
+        cuda.synchronize()
+        
+        return result, result_derivative
+    '''
+    def pairwise_scale_curvature(self, x, x_scale=None,  max_batch=1000, max_threads=1024):       
+        batch_size = x.shape[0]
+        
+        x_scale = torch.ones(batch_size, device=x.device, dtype=x.dtype) if x_scale is None else x_scale
+        x_scale = x_scale.repeat(batch_size) if x_scale.shape[0] == 1 else x_scale
+               
+        solver = PairwisePDESolver(
+            batch_size, 
+            x.shape[1], 
+            x.shape[1],
+            tensor_type(x),
+            self.dyadic_order,
+            max_batch,
+            max_threads
+        )
+
+        result = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        result_derivative = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        result_curvature = torch.zeros(batch_size, device=x.device, dtype=x.dtype)
+        
+        for _, start, stop in BatchIterator(batch_size, solver.max_batch):
+            cuda.synchronize()
+            inc = pairwise_inner_product(x[start:stop,:,:], x[start:stop,:,:], self.static_kernel, self.dyadic_order)
+            
+            solver.solve_scaled_curvature(
+                inc,
+                x_scale[start:stop],
+                result[start:stop],
+                result_derivative[start:stop],
+                result_curvature[start:stop]
+            )
+                
+        cuda.synchronize()
+        
+        return result, result_derivative, result_curvature
+    '''
+           
 class RobustSigPDE():
     def __init__(self, static_kernel, dyadic_order=0, normalizer=None):
         self.static_kernel = static_kernel
         self.dyadic_order = dyadic_order
         self.normalizer = log_normalizer if normalizer is None else normalizer
         
-    def _norm_factors(self, solver, inc, norms, scales, normalizer, tol=1e-8, maxit=100):
+    def _norm_factors(self, solver, inc, norms, scales, normalizer, method, tol=1e-8, maxit=100):
         solver.solve(inc, norms)
         
         norms[torch.isnan(norms)] = torch.inf
         normalized_norms = normalizer(norms)
+        
+        if method == "newton_raphson" or method == "secant":
+            scales[:] = torch.sqrt(normalized_norms.log() / norms.log())
         
         solver.solve_norms(
             inc,
@@ -189,12 +262,13 @@ class RobustSigPDE():
             norms,
             scales,
             tol,
-            maxit
+            maxit,
+            method
         )
         
         scales[norms < 1] = 0
         
-    def normalization(self, x, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
+    def normalization(self, x, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024, method="chandrupatla"):
         normalizer = self.normalizer if normalizer is None else normalizer
         
         batch_size = x.shape[0]
@@ -221,6 +295,7 @@ class RobustSigPDE():
                 x_norms[start:stop],
                 x_scales[start:stop],
                 normalizer,
+                method,
                 tol,
                 maxit
             )
@@ -290,12 +365,12 @@ class RobustSigPDE():
         
         return result
     
-    def gram(self, x, y=None, x_scale=None, y_scale=None, normalizer=None, tol=1e-8, maxit=100, max_batch=1000, max_threads=1024):
-        x_scales = self.normalization(x, normalizer, tol, maxit, max_batch, max_threads) if x_scale is None else x_scale
+    def gram(self, x, y=None, x_scale=None, y_scale=None, normalizer=None, tol=1e-8, maxit=100, method="newton-raphson", max_batch=1000, max_threads=1024):
+        x_scales = self.normalization(x, normalizer, tol, maxit, max_batch, max_threads, method) if x_scale is None else x_scale
         if y is None:
             y_scales = None
         else:
-            y_scales = self.normalization(y, normalizer, tol, maxit, max_batch, max_threads) if y_scale is None else y_scale
+            y_scales = self.normalization(y, normalizer, tol, maxit, max_batch, max_threads, method) if y_scale is None else y_scale
         
         solver = SigPDE(self.static_kernel, self.dyadic_order)
         return solver.gram(x, y, x_scales, y_scales, max_batch, max_threads)

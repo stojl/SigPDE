@@ -8,16 +8,22 @@ from sigpde.bufferFactory import (
 )
 
 from sigpde.cuda_pairwise_kernels import (
-    sigpde_pairwise,
-    sigpde_pairwise_scaled,
-    sigpde_pairwise_norm_chandraputla
+    sigpde_pairwise
+    ,sigpde_pairwise_scaled
+    ,sigpde_pairwise_norm_chandrupatla
+    ,sigpde_pairwise_norm_bisection
+    ,sigpde_pairwise_norm_chandrupatla_log
+    ,sigpde_pairwise_scale_derivative
+    ,sigpde_pairwise_norm_newton_raphson,
+    sigpde_pairwise_norm_secant
+    #,sigpde_pairwise_scale_curvature
 )
 
 from sigpde.cuda_gram_kernels import (
-    sigpde_gram,
-    sigpde_gram_scaled,
-    sigpde_gram_symmetric,
-    sigpde_gram_symmetric_scaled
+    sigpde_gram
+    ,sigpde_gram_scaled
+    ,sigpde_gram_symmetric
+    ,sigpde_gram_symmetric_scaled
 )
 
 from sigpde.utils import (
@@ -51,7 +57,8 @@ class PairwisePDESolver():
         
         self.buffer_factory = PairwiseBufferFactory(self.max_batch, self.length_x, self.dtype)
         self.buffer = self.buffer_factory()
-        self.norm_buffer = None
+        self.buffer_derivative = None
+        #self.buffer_curvature = None
         
     def solve(self, increments, result):
         blocks = min(increments.__cuda_array_interface__["shape"][0], self.max_batch)
@@ -83,56 +90,125 @@ class PairwisePDESolver():
             cuda.as_cuda_array(result)
         )
         
-    def solve_norms(self, increments, norms, f_norms, result, tol=1e-8, maxit=100):
+    def solve_scaled_derivative(self, increments, scale_x, result, result_derivative):
         blocks = min(increments.__cuda_array_interface__["shape"][0], self.max_batch)
-    
-        sigpde_pairwise_norm_chandraputla[blocks, self.threads_per_block](
-            cuda.as_cuda_array(increments), 
-            cuda.as_cuda_array(norms), 
-            cuda.as_cuda_array(f_norms),
+        
+        if self.buffer_derivative is None:
+            self.buffer_derivative = self.buffer_factory()
+        
+        sigpde_pairwise_scale_derivative[blocks, self.threads_per_block](
+            cuda.as_cuda_array(increments),
             self.length_x, 
+            cuda.as_cuda_array(scale_x), 
             self.dyadic_order, 
             self.thread_mult, 
             self.anti_diagonals, 
             self.buffer, 
-            cuda.as_cuda_array(result),
-            maxit,
-            tol
+            self.buffer_derivative,
+            result, 
+            result_derivative
         )
-        
-    def solve_norms_legacy(self, increments, norms, f_norms, result, init_tol=0.01, tol=1e-8, maxit=100):
+    '''   
+    def solve_scaled_curvature(self, increments, scale_x, result, result_derivative, result_curvature):
         blocks = min(increments.__cuda_array_interface__["shape"][0], self.max_batch)
-    
-        if self.norm_buffer is None:
-            self.norm_buffer = cuda.device_array((self.max_batch, 4), dtype=self.dtype)
-            
-        sigpde_pairwise_norm_init[blocks, self.threads_per_block](
-            cuda.as_cuda_array(increments), 
-            cuda.as_cuda_array(norms), 
-            cuda.as_cuda_array(f_norms),
-            self.length_x, 
-            self.dyadic_order, 
-            self.thread_mult, 
-            self.anti_diagonals, 
-            self.buffer, 
-            self.norm_buffer,
-            maxit,
-            init_tol
-        )
         
-        sigpde_pairwise_norm[blocks, self.threads_per_block](
-            cuda.as_cuda_array(increments), 
-            cuda.as_cuda_array(norms),
-            self.norm_buffer,
-            self.length_x,
+        if self.buffer_derivative is None:
+            self.buffer_derivative = self.buffer_factory()
+        if self.buffer_curvature is None:
+            self.buffer_curvature = self.buffer_factory()
+        
+        sigpde_pairwise_scale_curvature[blocks, self.threads_per_block](
+            cuda.as_cuda_array(increments),
+            self.length_x, 
+            cuda.as_cuda_array(scale_x), 
             self.dyadic_order, 
             self.thread_mult, 
             self.anti_diagonals, 
             self.buffer, 
-            cuda.as_cuda_array(result),
-            maxit,
-            tol
+            self.buffer_derivative,
+            self.buffer_curvature,
+            result, 
+            result_derivative,
+            result_curvature
         )
+    '''
+        
+    def solve_norms(self, increments, norms, f_norms, result, tol=1e-8, maxit=100, method="newton_raphson"):
+        blocks = min(increments.__cuda_array_interface__["shape"][0], self.max_batch)
+        
+        if method == "bisection":
+            sigpde_pairwise_norm_bisection[blocks, self.threads_per_block](
+                cuda.as_cuda_array(increments), 
+                cuda.as_cuda_array(norms),
+                self.length_x, 
+                self.dyadic_order, 
+                self.thread_mult, 
+                self.anti_diagonals, 
+                self.buffer, 
+                cuda.as_cuda_array(result),
+                maxit,
+                tol
+            )
+        elif method == "newton_raphson":
+            if self.buffer_derivative is None:
+                self.buffer_derivative = self.buffer_factory()
+                
+            sigpde_pairwise_norm_newton_raphson[blocks, self.threads_per_block](
+                cuda.as_cuda_array(increments), 
+                cuda.as_cuda_array(norms),
+                cuda.as_cuda_array(f_norms),
+                self.length_x,
+                self.dyadic_order,
+                self.thread_mult,
+                self.anti_diagonals,
+                self.buffer,
+                self.buffer_derivative,
+                result,
+                maxit,
+                tol
+            )
+        elif method == "secant":
+            sigpde_pairwise_norm_secant[blocks, self.threads_per_block](
+                cuda.as_cuda_array(increments), 
+                cuda.as_cuda_array(norms),
+                cuda.as_cuda_array(f_norms),
+                self.length_x,
+                self.dyadic_order,
+                self.thread_mult,
+                self.anti_diagonals,
+                self.buffer,
+                result,
+                maxit,
+                tol
+            )
+        elif method == "chandrupatla_log":
+            sigpde_pairwise_norm_chandrupatla_log[blocks, self.threads_per_block](
+                cuda.as_cuda_array(increments), 
+                cuda.as_cuda_array(norms), 
+                cuda.as_cuda_array(f_norms),
+                self.length_x, 
+                self.dyadic_order, 
+                self.thread_mult, 
+                self.anti_diagonals, 
+                self.buffer, 
+                cuda.as_cuda_array(result),
+                maxit,
+                tol
+            )
+        else:
+            sigpde_pairwise_norm_chandrupatla[blocks, self.threads_per_block](
+                cuda.as_cuda_array(increments), 
+                cuda.as_cuda_array(norms), 
+                cuda.as_cuda_array(f_norms),
+                self.length_x, 
+                self.dyadic_order, 
+                self.thread_mult, 
+                self.anti_diagonals, 
+                self.buffer, 
+                cuda.as_cuda_array(result),
+                maxit,
+                tol
+            )
         
 class GramPDESolver():
     def __init__(self, x_batch_size, y_batch_size, x_length, y_length, dtype=None, dyadic_order=0, max_batch=1000, max_threads=1024):
@@ -155,7 +231,6 @@ class GramPDESolver():
         
         self.buffer_factory = GramBufferFactory(self.max_batch_x, self.max_batch_y, self.length_x, self.dtype)
         self.buffer = self.buffer_factory()
-        self.norm_buffer = None
     
     def solve(self, increments, result):
         blocks_x = min(increments.__cuda_array_interface__["shape"][0], self.max_batch_x)
